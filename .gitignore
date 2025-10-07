@@ -1,0 +1,9 @@
+# Python
+__pycache__/
+*.pyc
+.env
+venv/
+.idea/
+
+# Grading
+grading_temp/
