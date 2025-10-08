@@ -5,9 +5,12 @@ import os
 import shutil
 import logging
 import aiohttp
+import json # ◀️ JSON 파싱을 위해 import 추가
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
+from config import settings as AppSettings
 
+# ... (설정 및 DTO 모델은 이전과 동일)
 # --- 설정 ---
 # 로깅 기본 설정
 logging.basicConfig(
@@ -15,12 +18,6 @@ logging.basicConfig(
     format='%(asctime)s - [%(levelname)s] - %(message)s',
 )
 logger = logging.getLogger(__name__)
-
-# 애플리케이션 설정 모델 (환경변수 등으로 관리 가능)
-class AppSettings(BaseModel):
-    spring_callback_url: str = "http://localhost:8080/api/internal/submissions/{submissionId}/complete"
-    spring_status_update_url: str = "http://localhost:8080/api/internal/submissions/{submissionId}/running" # ◀️ 상태 업데이트 URL 추가
-    upload_base_dir: str = "/path/to/your/spring/uploads" # ◀️ Spring Boot의 'uploads' 폴더 절대 경로
 
 settings = AppSettings()
 app = FastAPI()
@@ -45,6 +42,7 @@ async def send_callback(session: aiohttp.ClientSession, url: str, data: dict):
                 logger.error(f"Callback to {url} failed with status: {response.status}")
     except Exception as e:
         logger.error(f"Error during callback to {url}: {str(e)}")
+
 
 # --- 핵심 채점 로직 ---
 async def grade_submission(submission_id: int, zip_file_path: str):
@@ -81,15 +79,14 @@ async def grade_submission(submission_id: int, zip_file_path: str):
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=600)
 
         if proc.returncode == 0:
-            # 성공: stdout에서 점수와 로그를 파싱 (JSON 형태를 권장)
-            # 예시: "{"score": 95.5, "log": "All tests passed."}"
-            result = stdout.decode().strip()
-            # result_data = json.loads(result)
-            # score = result_data['score']
-            # log_output = result_data['log']
-            score = 100.0 # 임시 점수
-            log_output = f"채점 성공!\n{result}"
-            logger.info(f"[{submission_id}] 채점 스크립트 성공.")
+            # ▼▼▼▼▼▼▼▼▼▼ [수정된 부분 1] ▼▼▼▼▼▼▼▼▼▼
+            # 성공: stdout에서 JSON 결과를 파싱
+            result_str = stdout.decode().strip()
+            result_data = json.loads(result_str)
+            score = result_data.get('score', 0.0)
+            log_output = result_data.get('log', '로그 없음')
+            logger.info(f"[{submission_id}] 채점 스크립트 성공. 점수: {score}")
+            # ▲▲▲▲▲▲▲▲▲▲ [수정된 부분 1] ▲▲▲▲▲▲▲▲▲▲
         else:
             # 실패: stderr를 로그로 사용
             log_output = f"채점 스크립트 실행 오류:\n{stderr.decode()}"
